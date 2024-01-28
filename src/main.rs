@@ -4,7 +4,6 @@
 mod mpv;
 mod mpv_sys;
 
-use std::ffi::c_void;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 
@@ -183,15 +182,16 @@ struct DemoRenderer {
 }
 
 impl DemoRenderer {
-    fn new(
+    fn new<'a>(
         mpv: mpv::Mpv,
         gl: glow::Context,
-        get_proc_addr: Box<&dyn Fn(&std::ffi::CStr) -> *const c_void>,
+        get_proc_addr: &'a &mpv::CreateContextFn<'a>,
     ) -> Self {
         let gl = Rc::new(gl);
         let texture = unsafe { DemoTexture::new(&gl, 320, 200) };
 
-        let mpv_gl = mpv::MpvRenderContext::new(mpv, get_proc_addr).unwrap();
+        let mut mpv_gl = mpv::MpvRenderContext::new(mpv, get_proc_addr).unwrap();
+        mpv_gl.unset_update_callback();
         Self {
             gl,
             mpv_gl,
@@ -277,8 +277,10 @@ fn main() {
                         },
                         _ => panic!("Non-opengl graphics api"),
                     };
-                    let get_proc_addr = Box::new(*get_proc_addr);
-                    renderer = Some(DemoRenderer::new(mpv, context, get_proc_addr))
+                    let get_proc_addr = get_proc_addr;
+                    let mut mpv = DemoRenderer::new(mpv, context, get_proc_addr);
+                    mpv.mpv_gl.command(&["loadfile", "/home/morj/videos/Screencast_20230507_134547.webm"]).unwrap();
+                    renderer = Some(mpv);
                 }
                 slint::RenderingState::BeforeRendering => {
                     if let (Some(renderer), Some(app)) = (renderer.as_mut(), app_weak.upgrade()) {

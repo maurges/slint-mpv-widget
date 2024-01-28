@@ -27,10 +27,12 @@ impl Mpv {
 
     pub fn set_option_string(&mut self, name: &str, value: &str) {
         let _ = unsafe {
+            let name = std::ffi::CString::new(name).unwrap();
+            let value = std::ffi::CString::new(value).unwrap();
             sys::mpv_set_option_string(
                 self.ptr,
-                std::ffi::CString::new(name).unwrap().as_ptr(),
-                std::ffi::CString::new(value).unwrap().as_ptr(),
+                name.as_ptr(),
+                value.as_ptr(),
             )
         };
     }
@@ -48,6 +50,7 @@ impl Mpv {
     pub fn command(&mut self, args: &[&str]) -> Option<()> {
         let args_buf = args.iter().map(|s| std::ffi::CString::new(*s).unwrap()).collect::<Vec<_>>();
         let mut args = args_buf.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
+        args.push(std::ptr::null());
         let r = unsafe {
             sys::mpv_command(self.ptr, args.as_mut_ptr())
         };
@@ -77,21 +80,29 @@ impl std::ops::Deref for MpvRenderContext {
         &self.parent
     }
 }
+impl std::ops::DerefMut for MpvRenderContext {
+    fn deref_mut(&mut self) -> &mut Mpv {
+        &mut self.parent
+    }
+}
+
+pub type CreateContextFn<'a> = dyn Fn(&std::ffi::CStr) -> *const c_void + 'a;
 
 impl MpvRenderContext {
     #[must_use]
-    pub fn new(
+    pub fn new<'a>(
         parent: Mpv,
-        get_proc_addr: Box<&dyn Fn(&std::ffi::CStr) -> *const c_void>,
+        get_proc_addr: &'a &CreateContextFn<'a>,
     ) -> Option<Self> {
+
         unsafe extern "C" fn call_closure(closure_ptr: *mut c_void, arg: *const i8) -> *mut c_void {
             let arg = std::ffi::CStr::from_ptr(arg);
-            type TargetFn = dyn Fn(&std::ffi::CStr) -> *const c_void;
-            let closure_ptr = closure_ptr as *mut &TargetFn;
-            let closure = Box::from_raw(closure_ptr);
-            closure(arg).cast_mut()
+            let closure_ptr = closure_ptr as *const &CreateContextFn;
+            let closure: &&CreateContextFn = &*closure_ptr;
+            let r = closure(arg).cast_mut();
+            r
         }
-        let closure_ptr = Box::into_raw(get_proc_addr);
+        let closure_ptr = get_proc_addr as *const &CreateContextFn;
         let mut init_params = sys::mpv_opengl_init_params {
             get_proc_address: Some(call_closure),
             get_proc_address_ctx: closure_ptr as *mut c_void,
@@ -141,7 +152,7 @@ impl MpvRenderContext {
             h: height,
             internal_format: 0,
         };
-        let mut flip_y: i32 = 1;
+        let mut flip_y: i32 = 0;
         let mut params = [
             sys::mpv_render_param {
                 type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO,
