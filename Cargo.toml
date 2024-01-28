@@ -1,0 +1,15 @@
+[package]
+name = "mpv-player"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+slint = { version = "1.3" }
+glow = { version = "0.13" }
+web-time = { version = "1.0" }
+
+[build-dependencies]
+slint-build = { version = "1.3" }
