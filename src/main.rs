@@ -152,8 +152,7 @@ struct DemoRenderer {
     effect_time_location: glow::UniformLocation,
     selected_light_color_position: glow::UniformLocation,
     start_time: web_time::Instant,
-    displayed_texture: DemoTexture,
-    next_texture: DemoTexture,
+    texture: DemoTexture,
 }
 
 impl DemoRenderer {
@@ -305,8 +304,7 @@ impl DemoRenderer {
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             gl.bind_vertex_array(None);
 
-            let displayed_texture = DemoTexture::new(&gl, 320, 200);
-            let next_texture = DemoTexture::new(&gl, 320, 200);
+            let texture = DemoTexture::new(&gl, 320, 200);
 
             Self {
                 gl,
@@ -316,8 +314,7 @@ impl DemoRenderer {
                 vbo,
                 vao,
                 start_time: web_time::Instant::now(),
-                displayed_texture,
-                next_texture,
+                texture,
             }
         }
     }
@@ -334,6 +331,8 @@ impl Drop for DemoRenderer {
 }
 
 impl DemoRenderer {
+    /// Returns `Some` when a texture has changed, and None if previous one has
+    /// been rendered to
     fn render(
         &mut self,
         light_red: f32,
@@ -341,8 +340,8 @@ impl DemoRenderer {
         light_blue: f32,
         width: u32,
         height: u32,
-    ) -> slint::Image {
-        unsafe {
+    ) -> Option<slint::Image> {
+        let recreated = unsafe {
             let gl = &self.gl;
 
             gl.use_program(Some(self.program));
@@ -350,16 +349,18 @@ impl DemoRenderer {
             let _saved_vbo = ScopedVBOBinding::new(gl, Some(self.vbo));
             let _saved_vao = ScopedVAOBinding::new(gl, Some(self.vao));
 
-            if self.next_texture.width != width || self.next_texture.height != height {
-                let mut new_texture = DemoTexture::new(gl, width, height);
-                std::mem::swap(&mut self.next_texture, &mut new_texture);
-            }
+            let recreated = if self.texture.width != width || self.texture.height != height {
+                self.texture = DemoTexture::new(gl, width, height);
+                true
+            } else {
+                false
+            };
 
-            self.next_texture.with_texture_as_active_fbo(|| {
+            self.texture.with_texture_as_active_fbo(|| {
                 let mut saved_viewport: [i32; 4] = [0, 0, 0, 0];
                 gl.get_parameter_i32_slice(glow::VIEWPORT, &mut saved_viewport);
 
-                gl.viewport(0, 0, self.next_texture.width as _, self.next_texture.height as _);
+                gl.viewport(0, 0, self.texture.width as _, self.texture.height as _);
                 let elapsed = self.start_time.elapsed().as_millis() as f32 / 500.;
                 gl.uniform_1_f32(Some(&self.effect_time_location), elapsed);
 
@@ -381,26 +382,28 @@ impl DemoRenderer {
             });
 
             gl.use_program(None);
-        }
-
-        let result_texture = unsafe {
-            slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
-                self.next_texture.texture.0,
-                (self.next_texture.width, self.next_texture.height).into(),
-            )
-            .build()
+            recreated
         };
 
-        std::mem::swap(&mut self.next_texture, &mut self.displayed_texture);
-
-        result_texture
+        if recreated {
+            let result_texture = unsafe {
+                slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
+                    self.texture.texture.0,
+                    (self.texture.width, self.texture.height).into(),
+                )
+                .build()
+            };
+            Some(result_texture)
+        } else {
+            None
+        }
     }
 }
 
 fn main() {
     let app = App::new().unwrap();
 
-    let mut underlay = None;
+    let mut renderer = None;
 
     let app_weak = app.as_weak();
 
@@ -415,24 +418,26 @@ fn main() {
                     },
                     _ => return,
                 };
-                underlay = Some(DemoRenderer::new(context))
+                renderer = Some(DemoRenderer::new(context))
             }
             slint::RenderingState::BeforeRendering => {
-                if let (Some(underlay), Some(app)) = (underlay.as_mut(), app_weak.upgrade()) {
-                    let texture = underlay.render(
+                if let (Some(renderer), Some(app)) = (renderer.as_mut(), app_weak.upgrade()) {
+                    let mb_texture = renderer.render(
                         app.get_selected_red(),
                         app.get_selected_green(),
                         app.get_selected_blue(),
                         app.get_requested_texture_width() as u32,
                         app.get_requested_texture_height() as u32,
                     );
-                    app.set_texture(slint::Image::from(texture));
+                    if let Some(texture) = mb_texture {
+                        app.set_texture(texture);
+                    }
                     app.window().request_redraw();
                 }
             }
             slint::RenderingState::AfterRendering => {}
             slint::RenderingState::RenderingTeardown => {
-                drop(underlay.take());
+                drop(renderer.take());
             }
             _ => {}
         }
