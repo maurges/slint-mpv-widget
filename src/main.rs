@@ -273,7 +273,16 @@ fn main() {
 
     let app_weak = app.as_weak();
 
-    let mut count = 2;
+    let render_once = move |renderer: &mut DemoRenderer, app: &App| {
+        let mb_texture = renderer.render(
+            app.get_requested_texture_width() as u32,
+            app.get_requested_texture_height() as u32,
+        );
+        if let Some(texture) = mb_texture {
+            app.set_texture(texture);
+        }
+        app.window().request_redraw();
+    };
 
     let r = app
         .window()
@@ -300,21 +309,17 @@ fn main() {
                     .unwrap();
 
                 renderer = Some(mpv);
+
+                // for some reason it doesn't render otherwise, unless we
+                // render and recreate texture
+                if let (Some(renderer), Some(app)) = (renderer.as_mut(), app_weak.upgrade()) {
+                    render_once(renderer, &app);
+                    app.set_texture(renderer.recreate());
+                }
             }
             slint::RenderingState::BeforeRendering => {
                 if let (Some(renderer), Some(app)) = (renderer.as_mut(), app_weak.upgrade()) {
-                    if count > 0 {
-                        count -= 1;
-                        app.set_texture(renderer.recreate());
-                    }
-                    let mb_texture = renderer.render(
-                        app.get_requested_texture_width() as u32,
-                        app.get_requested_texture_height() as u32,
-                    );
-                    if let Some(texture) = mb_texture {
-                        app.set_texture(texture);
-                    }
-                    app.window().request_redraw();
+                    render_once(renderer, &app);
                 }
             }
             slint::RenderingState::AfterRendering => {}
