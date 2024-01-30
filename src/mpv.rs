@@ -132,12 +132,14 @@ impl MpvRenderContext {
         }
     }
 
+    #[allow(dead_code)]
     pub fn unset_update_callback(&mut self) {
         unsafe {
             sys::mpv_render_context_set_update_callback(self.ptr, None, std::ptr::null_mut())
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_update_callback(&mut self, cb: unsafe extern "C" fn(*mut c_void)) {
         unsafe {
             sys::mpv_render_context_set_update_callback(self.ptr, Some(cb), std::ptr::null_mut())
