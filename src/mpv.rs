@@ -1,6 +1,10 @@
 use std::ffi::c_void;
 
-use crate::mpv_sys as sys;
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
+#[allow(non_snake_case)]
+mod sys;
 
 pub struct Mpv {
     ptr: *mut sys::mpv_handle,
