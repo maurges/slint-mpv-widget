@@ -188,10 +188,9 @@ impl DemoRenderer {
         get_proc_addr: &'a &mpv::CreateContextFn<'a>,
     ) -> Self {
         let gl = Rc::new(gl);
-        let mut mpv_gl = mpv::MpvRenderContext::new(mpv, get_proc_addr).unwrap();
+        // random size, will be set for real later
         let texture = unsafe { DemoTexture::new(&gl, 320, 200) };
-        eprintln!("first created texture: {}", texture.texture.0);
-
+        let mut mpv_gl = mpv::MpvRenderContext::new(mpv, get_proc_addr).unwrap();
         mpv_gl.unset_update_callback();
         Self {
             gl,
@@ -210,15 +209,6 @@ impl DemoRenderer {
         }
     }
 
-    fn recreate(&mut self) -> slint::Image {
-        unsafe {
-            let gl = &self.gl;
-            self.texture = DemoTexture::new(gl, self.texture.width, self.texture.height);
-            eprintln!("Specifically recreated texture: {}", self.texture.texture.0);
-        }
-        self.texture()
-    }
-
     /// Returns `Some` when a texture has changed, and None if previous one has
     /// been rendered to
     fn render(&mut self, width: u32, height: u32) -> Option<slint::Image> {
@@ -227,32 +217,19 @@ impl DemoRenderer {
 
             let recreated = if self.texture.width != width || self.texture.height != height {
                 self.texture = DemoTexture::new(gl, width, height);
-                eprintln!("Recreated texture on change: {}", self.texture.texture.0);
                 true
             } else {
                 false
             };
 
             self.texture.with_texture_as_active_fbo(|| {
-                let mut saved_viewport: [i32; 4] = [0, 0, 0, 0];
-                gl.get_parameter_i32_slice(glow::VIEWPORT, &mut saved_viewport);
-
-                gl.viewport(0, 0, self.texture.width as _, self.texture.height as _);
-
                 self.mpv_gl
                     .render(
-                        self.texture.texture.0.get(),
+                        self.texture.fbo.0.get(),
                         self.texture.width as _,
                         self.texture.height as _,
                     )
                     .unwrap();
-
-                gl.viewport(
-                    saved_viewport[0],
-                    saved_viewport[1],
-                    saved_viewport[2],
-                    saved_viewport[3],
-                );
             });
 
             recreated
@@ -272,17 +249,6 @@ fn main() {
     let mut renderer = None;
 
     let app_weak = app.as_weak();
-
-    let render_once = move |renderer: &mut DemoRenderer, app: &App| {
-        let mb_texture = renderer.render(
-            app.get_requested_texture_width() as u32,
-            app.get_requested_texture_height() as u32,
-        );
-        if let Some(texture) = mb_texture {
-            app.set_texture(texture);
-        }
-        app.window().request_redraw();
-    };
 
     let r = app
         .window()
@@ -309,17 +275,17 @@ fn main() {
                     .unwrap();
 
                 renderer = Some(mpv);
-
-                // for some reason it doesn't render otherwise, unless we
-                // render and recreate texture
-                if let (Some(renderer), Some(app)) = (renderer.as_mut(), app_weak.upgrade()) {
-                    render_once(renderer, &app);
-                    app.set_texture(renderer.recreate());
-                }
             }
             slint::RenderingState::BeforeRendering => {
                 if let (Some(renderer), Some(app)) = (renderer.as_mut(), app_weak.upgrade()) {
-                    render_once(renderer, &app);
+                    let mb_texture = renderer.render(
+                        app.get_requested_texture_width() as u32,
+                        app.get_requested_texture_height() as u32,
+                    );
+                    if let Some(texture) = mb_texture {
+                        app.set_texture(texture);
+                    }
+                    app.window().request_redraw();
                 }
             }
             slint::RenderingState::AfterRendering => {}
