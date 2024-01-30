@@ -95,6 +95,11 @@ fn main() {
                 let context =
                     unsafe { glow::Context::from_loader_function_cstr(|s| get_proc_address(s)) };
                 let mut mpv = DemoRenderer::new(mpv, context, get_proc_address);
+
+                mpv.mpv_gl.set_update_callback(|| {
+                    let _ = app_weak.upgrade_in_event_loop(|app| app.window().request_redraw());
+                });
+
                 mpv.mpv_gl
                     .command(&[
                         "loadfile",
@@ -113,7 +118,6 @@ fn main() {
                     if let Some(texture) = mb_texture {
                         app.set_texture(texture);
                     }
-                    app.window().request_redraw();
                 }
             }
             slint::RenderingState::AfterRendering => {}

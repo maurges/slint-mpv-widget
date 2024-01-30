@@ -30,6 +30,7 @@ impl Mpv {
     }
 
     pub fn set_option_string(&mut self, name: &str, value: &str) {
+        // Safety: TODO
         let _ = unsafe {
             let name = std::ffi::CString::new(name).unwrap();
             let value = std::ffi::CString::new(value).unwrap();
@@ -43,6 +44,7 @@ impl Mpv {
 
     #[must_use]
     pub fn initialize(&mut self) -> Option<()> {
+        // Safety: TODO
         if unsafe { sys::mpv_initialize(self.ptr) } < 0 {
             None
         } else {
@@ -55,6 +57,7 @@ impl Mpv {
         let args_buf = args.iter().map(|s| std::ffi::CString::new(*s).unwrap()).collect::<Vec<_>>();
         let mut args = args_buf.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
         args.push(std::ptr::null());
+        // Safety: TODO
         let r = unsafe {
             sys::mpv_command(self.ptr, args.as_mut_ptr())
         };
@@ -63,6 +66,20 @@ impl Mpv {
         } else {
             Some(())
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn set_wakeup_callback<F>(&mut self, cb: F)
+    where
+        F: FnMut(),
+    {
+        let closure = Box::new(cb);
+        unsafe {
+            let closure_ptr = Box::into_raw(closure);
+            let closure_ptr = closure_ptr as *mut c_void;
+            sys::mpv_set_wakeup_callback(self.ptr, Some(call_closure_0::<F>), closure_ptr);
+        }
+
     }
 }
 
@@ -73,6 +90,7 @@ pub struct MpvRenderContext {
 
 impl Drop for MpvRenderContext {
     fn drop(&mut self) {
+        // Safety: TODO
         unsafe { sys::mpv_render_context_free(self.ptr) };
     }
 }
@@ -98,7 +116,8 @@ impl MpvRenderContext {
         parent: Mpv,
         get_proc_addr: &'a &CreateContextFn<'a>,
     ) -> Option<Self> {
-
+        // this is monomorphic because it's only ever used for slint's function
+        // type, and doing otherwise would require too many plumbing, not worth
         unsafe extern "C" fn call_closure(closure_ptr: *mut c_void, arg: *const i8) -> *mut c_void {
             let arg = std::ffi::CStr::from_ptr(arg);
             let closure_ptr = closure_ptr as *const &CreateContextFn;
@@ -143,10 +162,15 @@ impl MpvRenderContext {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn set_update_callback(&mut self, cb: unsafe extern "C" fn(*mut c_void)) {
+    pub fn set_update_callback<F>(&mut self, cb: F)
+    where
+        F: FnMut(),
+    {
+        let closure = Box::new(cb);
         unsafe {
-            sys::mpv_render_context_set_update_callback(self.ptr, Some(cb), std::ptr::null_mut())
+            let closure_ptr = Box::into_raw(closure);
+            let closure_ptr = closure_ptr as *mut c_void;
+            sys::mpv_render_context_set_update_callback(self.ptr, Some(call_closure_0::<F>), closure_ptr)
         }
     }
 
@@ -180,4 +204,15 @@ impl MpvRenderContext {
             Some(())
         }
     }
+}
+
+/// Safety: `closure_ptr` must be Box<F>
+unsafe extern "C" fn call_closure_0<F>(closure_ptr: *mut c_void)
+where
+    F: FnMut(),
+{
+    let closure_ptr = closure_ptr as *mut F;
+    let mut closure: Box<F> = Box::from_raw(closure_ptr);
+    closure();
+    Box::leak(closure);
 }
