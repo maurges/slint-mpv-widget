@@ -5,11 +5,10 @@ import { Slider, GroupBox, HorizontalBox, VerticalBox, GridBox } from "std-widge
 
 export component App inherits Window {
     in property <image> texture <=> image.source;
+    in property <float> video-duration;
+    in property <float> video-position;
     out property <int> requested-texture-width: image.width/1phx;
     out property <int> requested-texture-height: image.height/1phx;
-    out property <float> selected-red <=> red.value;
-    out property <float> selected-green <=> green.value;
-    out property <float> selected-blue <=> blue.value;
 
     preferred-width: 500px;
     preferred-height: 600px;
@@ -31,45 +30,19 @@ export component App inherits Window {
         }
 
         GroupBox {
-            title: "Cube Color Controls";
+            title: "Video Controls";
 
             GridBox {
                 Row {
                     Text {
-                        text: "Red:";
+                        text: "Duration:";
                         vertical-alignment: center;
                     }
 
                     red := Slider {
-                        minimum: 0.1;
-                        maximum: 1.0;
-                        value: 0.2;
-                    }
-                }
-
-                Row {
-                    Text {
-                        text: "Green:";
-                        vertical-alignment: center;
-                    }
-
-                    green := Slider {
-                        minimum: 0.1;
-                        maximum: 1.0;
-                        value: 0.5;
-                    }
-                }
-
-                Row {
-                    Text {
-                        text: "Blue:";
-                        vertical-alignment: center;
-                    }
-
-                    blue := Slider {
-                        minimum: 0.1;
-                        maximum: 1.0;
-                        value: 0.9;
+                        minimum: 0.0;
+                        maximum: video-duration;
+                        value: video-position;
                     }
                 }
             }

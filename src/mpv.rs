@@ -35,7 +35,7 @@ impl Mpv {
         }
     }
 
-    pub fn set_option_string(&mut self, name: &str, value: &str) {
+    pub fn set_option_string(&self, name: &str, value: &str) {
         // Safety: TODO
         let _ = unsafe {
             let name = std::ffi::CString::new(name).unwrap();
@@ -44,13 +44,13 @@ impl Mpv {
         };
     }
 
-    pub fn initialize(&mut self) -> Result<()> {
+    pub fn initialize(&self) -> Result<()> {
         // Safety: TODO
         let e = unsafe { sys::mpv_initialize(self.ptr) };
         Error::raise(e)
     }
 
-    pub fn command(&mut self, args: &[&str]) -> Result<()> {
+    pub fn command(&self, args: &[&str]) -> Result<()> {
         let args_buf = args
             .iter()
             .map(|s| std::ffi::CString::new(*s).unwrap())
@@ -63,7 +63,7 @@ impl Mpv {
     }
 
     #[allow(dead_code)]
-    pub fn set_wakeup_callback<F>(&mut self, cb: F)
+    pub fn set_wakeup_callback<F>(&self, cb: F)
     where
         F: FnMut(),
     {
@@ -91,6 +91,7 @@ pub mod event {
         TimePos(f64),
         /// Can sometimes happen
         Invalid,
+        TypeError,
     }
 
     pub(super) mod name {
@@ -109,11 +110,21 @@ pub mod event {
                     let prop = (*e).data as *const sys::mpv_event_property;
                     let name = std::ffi::CStr::from_ptr((*prop).name);
                     if name == name::DURATION {
-                        let value = *((*prop).data as *const f64);
-                        Property::Duration(value)
+                        if (*prop).format == sys::mpv_format_MPV_FORMAT_DOUBLE {
+                            let value = *((*prop).data as *const f64);
+                            Property::Duration(value)
+                        } else {
+                            eprintln!("type error in duration");
+                            Property::TypeError
+                        }
                     } else if name == name::TIME_POS {
-                        let value = *((*prop).data as *const f64);
-                        Property::TimePos(value)
+                        if (*prop).format == sys::mpv_format_MPV_FORMAT_DOUBLE {
+                            let value = *((*prop).data as *const f64);
+                            Property::TimePos(value)
+                        } else {
+                            eprintln!("type error in duration");
+                            Property::TypeError
+                        }
                     } else {
                         Property::Invalid
                     }
@@ -128,7 +139,7 @@ pub mod event {
 #[allow(dead_code)]
 impl Mpv {
     /// Notify mpv that we want to observe `duration` events
-    pub fn observe_duration(&mut self) -> Result<()> {
+    pub fn observe_duration(&self) -> Result<()> {
         unsafe {
             let e = sys::mpv_observe_property(
                 self.ptr,
@@ -141,7 +152,7 @@ impl Mpv {
     }
 
     /// Notify mpv that we want to observe `time-pos` events
-    pub fn observe_time_pos(&mut self) -> Result<()> {
+    pub fn observe_time_pos(&self) -> Result<()> {
         unsafe {
             let e = sys::mpv_observe_property(
                 self.ptr,
@@ -153,7 +164,7 @@ impl Mpv {
         }
     }
 
-    pub fn wait_event(&mut self, timeout: f64) -> Option<event::MpvEvent> {
+    pub fn wait_event(&self, timeout: f64) -> Option<event::MpvEvent> {
         let event_ptr = unsafe { sys::mpv_wait_event(self.ptr, timeout) };
         event::convert_event(event_ptr)
     }
@@ -162,7 +173,7 @@ impl Mpv {
 /// GL render context
 pub struct MpvRenderContext {
     ptr: *mut sys::mpv_render_context,
-    parent: Mpv,
+    parent: std::sync::Arc<Mpv>,
 }
 
 impl Drop for MpvRenderContext {
@@ -179,18 +190,13 @@ impl std::ops::Deref for MpvRenderContext {
         &self.parent
     }
 }
-impl std::ops::DerefMut for MpvRenderContext {
-    fn deref_mut(&mut self) -> &mut Mpv {
-        &mut self.parent
-    }
-}
 
 /// Mirrors slint's create context fn. Useful for me to not get lost in pointer
 /// casts
 pub type CreateContextFn<'a> = dyn Fn(&std::ffi::CStr) -> *const c_void + 'a;
 
 impl MpvRenderContext {
-    pub fn new<'a>(parent: Mpv, get_proc_addr: &'a &CreateContextFn<'a>) -> Result<Self> {
+    pub fn new<'a>(parent: std::sync::Arc<Mpv>, get_proc_addr: &'a &CreateContextFn<'a>) -> Result<Self> {
         // this is monomorphic because it's only ever used for slint's function
         // type, and doing otherwise would require too many plumbing, not worth
         unsafe extern "C" fn call_closure(closure_ptr: *mut c_void, arg: *const i8) -> *mut c_void {

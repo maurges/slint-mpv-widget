@@ -11,7 +11,7 @@ struct DemoRenderer {
 
 impl DemoRenderer {
     fn new<'a>(
-        mpv: mpv::Mpv,
+        mpv: std::sync::Arc<mpv::Mpv>,
         gl: glow::Context,
         get_proc_addr: &'a &mpv::CreateContextFn<'a>,
     ) -> Self {
@@ -72,20 +72,55 @@ impl DemoRenderer {
 }
 
 fn main() {
+    let mpv = mpv::Mpv::new().unwrap();
+    mpv.set_option_string("terminal", "yes");
+    mpv.set_option_string("msg-level", "all=v");
+    mpv.initialize().unwrap();
+    mpv.observe_duration().unwrap();
+    mpv.observe_time_pos().unwrap();
+    let mpv = std::sync::Arc::new(mpv);
+
     let app = App::new().unwrap();
+    let app_weak = app.as_weak();
+
+    let mpv_ = mpv.clone();
+    let app_weak_ = app_weak.clone();
+    let _binding = std::thread::spawn(move || {
+        let mpv = mpv_;
+        let app_weak = app_weak_;
+        loop {
+            if let Some(event) = mpv.wait_event(1.0) {
+                use mpv::event::MpvEvent;
+                use mpv::event::Property;
+                match event {
+                    MpvEvent::PropertyChange(Property::Duration(t)) => {
+                        eprintln!("set duration {}", t);
+                        let _ = app_weak.upgrade_in_event_loop(move |app| {
+                            app.set_video_duration(t as f32);
+                        });
+                    }
+                    MpvEvent::PropertyChange(Property::TimePos(t)) => {
+                        let _ = app_weak.upgrade_in_event_loop(move |app| {
+                            app.set_video_position(t as f32);
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            // check if event loop is still alive
+            match app_weak.upgrade_in_event_loop(|_| {}) {
+                Err(_) => break,
+                _ => (),
+            }
+        }
+    });
 
     let mut renderer = None;
-
-    let app_weak = app.as_weak();
 
     let r = app
         .window()
         .set_rendering_notifier(move |state, graphics_api| match state {
             slint::RenderingState::RenderingSetup => {
-                let mut mpv = mpv::Mpv::new().unwrap();
-                mpv.set_option_string("terminal", "yes");
-                mpv.set_option_string("msg-level", "all=v");
-                mpv.initialize().unwrap();
 
                 let get_proc_address = match graphics_api {
                     slint::GraphicsAPI::NativeOpenGL { get_proc_address } => get_proc_address,
@@ -94,7 +129,7 @@ fn main() {
 
                 let context =
                     unsafe { glow::Context::from_loader_function_cstr(|s| get_proc_address(s)) };
-                let mut mpv = DemoRenderer::new(mpv, context, get_proc_address);
+                let mut mpv = DemoRenderer::new(mpv.clone(), context, get_proc_address);
 
                 mpv.mpv_gl.set_update_callback(|| {
                     let _ = app_weak.upgrade_in_event_loop(|app| app.window().request_redraw());
