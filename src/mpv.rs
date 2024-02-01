@@ -76,100 +76,6 @@ impl Mpv {
     }
 }
 
-pub mod property {
-    use std::ffi::c_void;
-
-    use super::sys;
-
-    pub(super) mod name {
-        use std::ffi::CStr;
-
-        pub const DURATION: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"duration\0") };
-        pub const TIME_POS: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"time-pos\0") };
-        pub const PAUSE: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"pause\0") };
-    }
-
-    #[derive(Debug, Clone)]
-    pub enum Property {
-        Duration(f64),
-        TimePos(f64),
-        Pause(bool),
-    }
-
-    impl Property {
-        pub unsafe fn from_raw(prop: *const sys::mpv_event_property) -> Result<Self, ConvertError> {
-            debug_assert!(!prop.is_null());
-
-            unsafe fn read_double(
-                prop: *const sys::mpv_event_property,
-            ) -> Result<f64, ConvertError> {
-                if (*prop).format == sys::mpv_format_MPV_FORMAT_DOUBLE {
-                    let data = (*prop).data as *const f64;
-                    debug_assert!(!data.is_null());
-                    Ok(*data)
-                } else {
-                    Err(ConvertError::TypeError)
-                }
-            }
-            unsafe fn read_bool(
-                prop: *const sys::mpv_event_property,
-            ) -> Result<bool, ConvertError> {
-                if (*prop).format == sys::mpv_format_MPV_FORMAT_FLAG {
-                    let data = (*prop).data as *const std::ffi::c_int;
-                    debug_assert!(!data.is_null());
-                    Ok(*data != 0)
-                } else {
-                    Err(ConvertError::TypeError)
-                }
-            }
-
-            let name = std::ffi::CStr::from_ptr((*prop).name);
-            if name == name::DURATION {
-                read_double(prop).map(Property::Duration)
-            } else if name == name::TIME_POS {
-                read_double(prop).map(Property::TimePos)
-            } else if name == name::PAUSE {
-                read_bool(prop).map(Property::Pause)
-            } else {
-                Err(ConvertError::Invalid)
-            }
-        }
-
-        pub fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>) {
-            fn make_ptr<T>(x: T) -> Box<c_void> {
-                let boxed = Box::new(x);
-                let ptr = Box::into_raw(boxed);
-                let ptr = ptr as *mut c_void;
-                // Safety: safe as it was constructed from boxed value
-                unsafe { Box::from_raw(ptr) }
-            }
-            match self {
-                Property::Duration(val) => (
-                    name::DURATION,
-                    sys::mpv_format_MPV_FORMAT_DOUBLE,
-                    make_ptr(val),
-                ),
-                Property::TimePos(val) => (
-                    name::TIME_POS,
-                    sys::mpv_format_MPV_FORMAT_DOUBLE,
-                    make_ptr(val),
-                ),
-                Property::Pause(val) => (
-                    name::PAUSE,
-                    sys::mpv_format_MPV_FORMAT_FLAG,
-                    make_ptr(std::ffi::c_int::from(val)),
-                ),
-            }
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub enum ConvertError {
-        TypeError,
-        Invalid,
-    }
-}
-
 /// GL render context
 pub struct MpvRenderContext {
     ptr: *mut sys::mpv_render_context,
@@ -283,6 +189,131 @@ impl MpvRenderContext {
     }
 }
 
+pub mod property {
+    use std::ffi::{c_void, CStr};
+
+    use super::sys;
+
+    #[derive(Debug, Clone)]
+    pub enum Property {
+        Duration(Duration),
+        TimePos(TimePos),
+        Pause(Pause),
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct Duration(pub f64);
+    #[derive(Debug, Clone, Copy)]
+    pub struct TimePos(pub f64);
+    #[derive(Debug, Clone, Copy)]
+    pub struct Pause(pub bool);
+
+    pub trait PropertyTraits: Sized {
+        const NAME: &'static CStr;
+        const FORMAT: sys::mpv_format;
+        type MpvRepr: Default;
+        fn from_repr(val: &Self::MpvRepr) -> Self;
+        fn to_repr(&self) -> Self::MpvRepr;
+        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>);
+    }
+
+    impl Property {
+        pub unsafe fn from_raw(prop: *const sys::mpv_event_property) -> Result<Self, ConvertError> {
+            debug_assert!(!prop.is_null());
+
+            unsafe fn read<P: PropertyTraits>(p: *const sys::mpv_event_property) -> Result<P, ConvertError> {
+                if (*p).format == P::FORMAT {
+                    let data = (*p).data as *const P::MpvRepr;
+                    debug_assert!(!data.is_null());
+                    Ok(P::from_repr(&*data))
+                } else {
+                    Err(ConvertError::TypeError)
+                }
+            }
+
+            let name = std::ffi::CStr::from_ptr((*prop).name);
+            if name == Duration::NAME {
+                read(prop).map(Property::Duration)
+            } else if name == TimePos::NAME {
+                read(prop).map(Property::TimePos)
+            } else if name == Pause::NAME {
+                read(prop).map(Property::Pause)
+            } else {
+                Err(ConvertError::Invalid)
+            }
+        }
+    }
+
+    impl PropertyTraits for Duration {
+        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"duration\0") };
+        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
+        type MpvRepr = f64;
+        fn from_repr(val: &Self::MpvRepr) -> Self {
+            Self(*val)
+        }
+        fn to_repr(&self) -> Self::MpvRepr {
+            self.0
+        }
+        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>) {
+            (
+                Self::NAME,
+                Self::FORMAT,
+                make_ptr(self.0),
+            )
+        }
+    }
+    impl PropertyTraits for TimePos {
+        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"time-pos\0") };
+        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
+        type MpvRepr = f64;
+        fn from_repr(val: &Self::MpvRepr) -> Self {
+            Self(*val)
+        }
+        fn to_repr(&self) -> Self::MpvRepr {
+            self.0
+        }
+        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>) {
+            (
+                Self::NAME,
+                Self::FORMAT,
+                make_ptr(self.0),
+            )
+        }
+    }
+    impl PropertyTraits for Pause {
+        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"pause\0") };
+        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
+        type MpvRepr = std::ffi::c_int;
+        fn from_repr(val: &Self::MpvRepr) -> Self {
+            Self(*val != 0)
+        }
+        fn to_repr(&self) -> Self::MpvRepr {
+            std::ffi::c_int::from(self.0)
+        }
+        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>) {
+            (
+                Self::NAME,
+                Self::FORMAT,
+                make_ptr(std::ffi::c_int::from(self.0)),
+            )
+        }
+    }
+
+    fn make_ptr<T>(x: T) -> Box<c_void> {
+        let boxed = Box::new(x);
+        let ptr = Box::into_raw(boxed);
+        let ptr = ptr as *mut c_void;
+        // Safety: safe as it was constructed from boxed value
+        unsafe { Box::from_raw(ptr) }
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum ConvertError {
+        TypeError,
+        Invalid,
+    }
+}
+
 pub mod event {
     //! https://mpv.io/manual/master/#properties
 
@@ -321,53 +352,40 @@ impl Mpv {
         event::convert_event(event_ptr)
     }
 
-    pub fn set_property(&self, p: property::Property) -> Result<()> {
-        let (name, format, data_box) = p.into_raw();
-        let data_ptr = Box::into_raw(data_box);
-        // Safety: safe as ptr is valid, and data from property is also valid
-        let e = unsafe { sys::mpv_set_property(self.ptr, name.as_ptr(), format, data_ptr) };
-        drop(unsafe { Box::from_raw(data_ptr) });
-        Error::raise(e)
-    }
-
-    /// Notify mpv that we want to observe `duration` events
-    pub fn observe_duration(&self) -> Result<()> {
+    /// Notify mpv that we want to observe property events
+    pub fn observe_property<P: property::PropertyTraits>(&self) -> Result<()> {
         unsafe {
             let e = sys::mpv_observe_property(
                 self.ptr,
                 0,
-                property::name::DURATION.as_ptr(),
-                sys::mpv_format_MPV_FORMAT_DOUBLE,
+                P::NAME.as_ptr(),
+                P::FORMAT,
             );
             Error::raise(e)
         }
     }
 
-    pub fn get_pause(&self) -> Result<bool> {
-        let mut buffer: std::ffi::c_int = 0;
+    pub fn get_property<P: property::PropertyTraits>(&self) -> Result<P> {
+        let mut buffer = P::MpvRepr::default();
         let e = unsafe {
-            let ptr = &mut buffer as *mut std::ffi::c_int;
+            let ptr = &mut buffer as *mut P::MpvRepr;
             sys::mpv_get_property(
                 self.ptr,
-                property::name::PAUSE.as_ptr(),
-                sys::mpv_format_MPV_FORMAT_FLAG,
+                P::NAME.as_ptr(),
+                P::FORMAT,
                 ptr as *mut c_void,
             )
         };
-        Error::raises(buffer != 0, e)
+        Error::raises(P::from_repr(&buffer), e)
     }
 
-    /// Notify mpv that we want to observe `time-pos` events
-    pub fn observe_time_pos(&self) -> Result<()> {
-        unsafe {
-            let e = sys::mpv_observe_property(
-                self.ptr,
-                0,
-                property::name::TIME_POS.as_ptr(),
-                sys::mpv_format_MPV_FORMAT_DOUBLE,
-            );
-            Error::raise(e)
-        }
+    pub fn set_property<P: property::PropertyTraits>(&self, p: &P) -> Result<()> {
+        let data = p.to_repr();
+        let data_ptr = &data as *const P::MpvRepr;
+        let data_ptr = data_ptr as *mut c_void;
+        // Safety: safe as ptr is valid, and data from property is also valid
+        let e = unsafe { sys::mpv_set_property(self.ptr, P::NAME.as_ptr(), P::FORMAT, data_ptr) };
+        Error::raise(e)
     }
 }
 

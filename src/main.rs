@@ -76,8 +76,8 @@ fn main() {
     mpv.set_option_string("terminal", "yes");
     mpv.set_option_string("msg-level", "all=v");
     mpv.initialize().unwrap();
-    mpv.observe_duration().unwrap();
-    mpv.observe_time_pos().unwrap();
+    mpv.observe_property::<mpv::property::Duration>().unwrap();
+    mpv.observe_property::<mpv::property::TimePos>().unwrap();
     let mpv = std::sync::Arc::new(mpv);
 
     let app = App::new().unwrap();
@@ -86,29 +86,26 @@ fn main() {
     let mpv_ = mpv.clone();
     let app_weak_ = app_weak.clone();
     let _binding = std::thread::spawn(move || {
-        let mpv = mpv_;
-        let app_weak = app_weak_;
         loop {
-            if let Some(event) = mpv.wait_event(1.0) {
+            if let Some(event) = mpv_.wait_event(1.0) {
                 use mpv::event::MpvEvent;
                 use mpv::property::Property;
                 match event {
                     MpvEvent::PropertyChange(Property::Duration(t)) => {
-                        eprintln!("set duration {}", t);
-                        let _ = app_weak.upgrade_in_event_loop(move |app| {
-                            app.set_video_duration(t as f32);
+                        let _ = app_weak_.upgrade_in_event_loop(move |app| {
+                            app.set_video_duration(t.0 as f32);
                         });
                     }
                     MpvEvent::PropertyChange(Property::TimePos(t)) => {
-                        let _ = app_weak.upgrade_in_event_loop(move |app| {
-                            app.set_video_position(t as f32);
+                        let _ = app_weak_.upgrade_in_event_loop(move |app| {
+                            app.set_video_position(t.0 as f32);
                         });
                     }
                     _ => {}
                 }
             }
             // check if event loop is still alive
-            match app_weak.upgrade_in_event_loop(|_| {}) {
+            match app_weak_.upgrade_in_event_loop(|_| {}) {
                 Err(_) => break,
                 _ => (),
             }
@@ -116,8 +113,8 @@ fn main() {
     });
     let mpv_ = mpv.clone();
     app.on_toggle_pause(move || {
-        let state = mpv_.get_pause().unwrap();
-        mpv_.set_property(mpv::property::Property::Pause(!state)).unwrap();
+        let mpv::property::Pause(state) = mpv_.get_property().unwrap();
+        mpv_.set_property(&mpv::property::Pause(!state)).unwrap();
     });
 
     let mut renderer = None;
