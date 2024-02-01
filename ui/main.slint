@@ -1,7 +1,7 @@
 // Copyright © SixtyFPS GmbH <info@slint.dev>
 // SPDX-License-Identifier: MIT
 
-import { Slider, GroupBox, HorizontalBox, VerticalBox, GridBox } from "std-widgets.slint";
+import { Button, Slider, GroupBox, HorizontalBox, VerticalBox, GridBox } from "std-widgets.slint";
 
 export component App inherits Window {
     in property <image> texture <=> image.source;
@@ -9,6 +9,7 @@ export component App inherits Window {
     in property <float> video-position;
     out property <int> requested-texture-width: image.width/1phx;
     out property <int> requested-texture-height: image.height/1phx;
+    callback toggle-pause();
 
     preferred-width: 500px;
     preferred-height: 600px;
@@ -39,10 +40,16 @@ export component App inherits Window {
                         vertical-alignment: center;
                     }
 
-                    red := Slider {
+                    Slider {
                         minimum: 0.0;
                         maximum: video-duration;
                         value: video-position;
+                    }
+                }
+                Row {
+                    Button {
+                        text: "Pause/Play";
+                        clicked => { toggle-pause() }
                     }
                 }
             }

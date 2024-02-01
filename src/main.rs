@@ -91,7 +91,7 @@ fn main() {
         loop {
             if let Some(event) = mpv.wait_event(1.0) {
                 use mpv::event::MpvEvent;
-                use mpv::event::Property;
+                use mpv::property::Property;
                 match event {
                     MpvEvent::PropertyChange(Property::Duration(t)) => {
                         eprintln!("set duration {}", t);
@@ -113,6 +113,11 @@ fn main() {
                 _ => (),
             }
         }
+    });
+    let mpv_ = mpv.clone();
+    app.on_toggle_pause(move || {
+        let state = mpv_.get_pause().unwrap();
+        mpv_.set_property(mpv::property::Property::Pause(!state)).unwrap();
     });
 
     let mut renderer = None;
