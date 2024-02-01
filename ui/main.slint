@@ -6,10 +6,12 @@ import { Button, Slider, GroupBox, HorizontalBox, VerticalBox, GridBox } from "s
 export component App inherits Window {
     in property <image> texture <=> image.source;
     in property <float> video-duration;
-    in property <float> video-position;
+    in-out property <float> video-position <=> seeker.value;
     out property <int> requested-texture-width: image.width/1phx;
     out property <int> requested-texture-height: image.height/1phx;
+
     callback toggle-pause();
+    callback seek(float);
 
     preferred-width: 500px;
     preferred-height: 600px;
@@ -40,10 +42,13 @@ export component App inherits Window {
                         vertical-alignment: center;
                     }
 
-                    Slider {
+                    seeker := Slider {
                         minimum: 0.0;
                         maximum: video-duration;
-                        value: video-position;
+                        // it's not specified if this is emitted on being
+                        // changed as binding, but it seems it's only changed
+                        // from user interaction, which is what I want.
+                        changed => { seek(video-position) }
                     }
                 }
                 Row {

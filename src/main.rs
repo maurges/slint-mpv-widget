@@ -111,10 +111,15 @@ fn main() {
             }
         }
     });
+
     let mpv_ = mpv.clone();
     app.on_toggle_pause(move || {
         let mpv::property::Pause(state) = mpv_.get_property().unwrap();
         mpv_.set_property(&mpv::property::Pause(!state)).unwrap();
+    });
+    let mpv_ = mpv.clone();
+    app.on_seek(move |val| {
+        mpv_.set_property(&mpv::property::TimePos(val as f64)).unwrap();
     });
 
     let mut renderer = None;
