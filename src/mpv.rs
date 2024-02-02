@@ -191,7 +191,7 @@ impl MpvRenderContext {
 }
 
 pub mod property {
-    use std::ffi::{c_void, CStr};
+    use std::ffi::CStr;
 
     use super::sys;
 
@@ -201,6 +201,7 @@ pub mod property {
         TimePos(TimePos),
         Pause(Pause),
         AoVolume(AoVolume),
+        AoMute(AoVolume),
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -211,7 +212,11 @@ pub mod property {
     #[derive(Debug, Clone, Copy)]
     pub struct Pause(pub bool);
     #[derive(Debug, Clone, Copy)]
+    /// Until a video with audio track is loaded, volume property is not
+    /// accessible
     pub struct AoVolume(pub f64);
+    #[derive(Debug, Clone, Copy)]
+    pub struct AoMute(pub bool);
 
     pub trait PropertyTraits: Sized {
         const NAME: &'static CStr;
@@ -243,7 +248,10 @@ pub mod property {
             } else if name == Pause::NAME {
                 read(prop).map(Property::Pause)
             } else if name == AoVolume::NAME {
+                eprintln!("format: {}", (*prop).format);
                 read(prop).map(Property::AoVolume)
+            } else if name == AoMute::NAME {
+                read(prop).map(Property::AoMute)
             } else {
                 Err(ConvertError::Invalid)
             }
@@ -284,7 +292,7 @@ pub mod property {
         }
     }
     impl PropertyTraits for AoVolume {
-        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"time-pos\0") };
+        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"ao-volume\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
         type MpvRepr = f64;
         fn from_repr(val: &Self::MpvRepr) -> Self {
@@ -292,6 +300,17 @@ pub mod property {
         }
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
+        }
+    }
+    impl PropertyTraits for AoMute {
+        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"ao-mute\0") };
+        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
+        type MpvRepr = std::ffi::c_int;
+        fn from_repr(val: &Self::MpvRepr) -> Self {
+            Self(*val != 0)
+        }
+        fn to_repr(&self) -> Self::MpvRepr {
+            std::ffi::c_int::from(self.0)
         }
     }
 
@@ -388,17 +407,22 @@ where
     Box::leak(closure);
 }
 
-#[derive(Debug)]
 pub struct Error(i32);
 
-impl std::fmt::Display for Error {
+// panic uses Debug for showing error, not display? Fucking why?
+impl std::fmt::Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Safety: perfectly fine function
         let desc = unsafe { sys::mpv_error_string(self.0) };
         // Safety: guaranteed c string
         let desc = unsafe { std::ffi::CStr::from_ptr(desc) };
         let desc = desc.to_string_lossy();
-        write!(f, "{}", desc)
+        write!(f, "\"{}\"", desc)
+    }
+}
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
 

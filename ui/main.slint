@@ -63,7 +63,7 @@ export component App inherits Window {
                     volume := Slider {
                         minimum: 0.0;
                         maximum: 100.0;
-                        changed => { seek(video-position) }
+                        changed => { set-volume(video-volume) }
                     }
                 }
                 Row {

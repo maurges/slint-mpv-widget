@@ -128,8 +128,11 @@ fn main() {
         mpv_.set_property(&mpv::property::TimePos(val as f64)).unwrap();
     });
     let mpv_ = mpv.clone();
+    app.on_set_volume(move |val| {
+        mpv_.set_property(&mpv::property::AoVolume(val as f64)).unwrap();
+    });
+    let mpv_ = mpv.clone();
     app.on_open_file(move || {
-        eprintln!("open file");
         if let Some(path) = rfd::FileDialog::new().pick_file() {
             mpv_
                 .command(&[
@@ -137,8 +140,6 @@ fn main() {
                     path.to_str().unwrap(),
                 ])
                 .unwrap();
-        } else {
-            eprintln!("hm");
         }
     });
 
@@ -165,9 +166,14 @@ fn main() {
                 mpv.mpv_gl
                     .command(&[
                         "loadfile",
-                        "/home/morj/videos/Screencast_20230507_134547.webm",
+                        "/home/morj/videos/S.T.A.L.K.E.R.： Чистое Небо - Видеообзор (PC Игры) HD [MF8NSoVBozs].mkv",
                     ])
                     .unwrap();
+
+                // Giant hack!
+                std::thread::sleep_ms(500);
+                let mpv::property::AoVolume(initial_volume) = mpv.mpv_gl.get_property().unwrap();
+                app_weak.upgrade().unwrap().set_video_volume(initial_volume as f32);
 
                 renderer = Some(mpv);
             }

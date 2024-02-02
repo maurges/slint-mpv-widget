@@ -8,7 +8,7 @@ build = "build.rs"
 
 [dependencies]
 glow = { version = "0.13" }
-rfd = { version = "0.10", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.13", default-features = false, features = ["xdg-portal", "async-std"] }
 slint = { version = "1.3" }
 
 [build-dependencies]
