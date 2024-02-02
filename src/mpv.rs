@@ -50,6 +50,7 @@ impl Mpv {
         Error::raise(e)
     }
 
+    /// See https://mpv.io/manual/master/#list-of-input-commands
     pub fn command(&self, args: &[&str]) -> Result<()> {
         let args_buf = args
             .iter()
@@ -199,14 +200,18 @@ pub mod property {
         Duration(Duration),
         TimePos(TimePos),
         Pause(Pause),
+        AoVolume(AoVolume),
     }
 
     #[derive(Debug, Clone, Copy)]
     pub struct Duration(pub f64);
     #[derive(Debug, Clone, Copy)]
     pub struct TimePos(pub f64);
+    /// This one is not documented?? But it's mentioned in a lot of examples?
     #[derive(Debug, Clone, Copy)]
     pub struct Pause(pub bool);
+    #[derive(Debug, Clone, Copy)]
+    pub struct AoVolume(pub f64);
 
     pub trait PropertyTraits: Sized {
         const NAME: &'static CStr;
@@ -214,7 +219,6 @@ pub mod property {
         type MpvRepr: Default;
         fn from_repr(val: &Self::MpvRepr) -> Self;
         fn to_repr(&self) -> Self::MpvRepr;
-        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>);
     }
 
     impl Property {
@@ -238,6 +242,8 @@ pub mod property {
                 read(prop).map(Property::TimePos)
             } else if name == Pause::NAME {
                 read(prop).map(Property::Pause)
+            } else if name == AoVolume::NAME {
+                read(prop).map(Property::AoVolume)
             } else {
                 Err(ConvertError::Invalid)
             }
@@ -254,13 +260,6 @@ pub mod property {
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
         }
-        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>) {
-            (
-                Self::NAME,
-                Self::FORMAT,
-                make_ptr(self.0),
-            )
-        }
     }
     impl PropertyTraits for TimePos {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"time-pos\0") };
@@ -271,13 +270,6 @@ pub mod property {
         }
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
-        }
-        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>) {
-            (
-                Self::NAME,
-                Self::FORMAT,
-                make_ptr(self.0),
-            )
         }
     }
     impl PropertyTraits for Pause {
@@ -290,21 +282,17 @@ pub mod property {
         fn to_repr(&self) -> Self::MpvRepr {
             std::ffi::c_int::from(self.0)
         }
-        fn into_raw(self) -> (&'static std::ffi::CStr, u32, Box<c_void>) {
-            (
-                Self::NAME,
-                Self::FORMAT,
-                make_ptr(std::ffi::c_int::from(self.0)),
-            )
-        }
     }
-
-    fn make_ptr<T>(x: T) -> Box<c_void> {
-        let boxed = Box::new(x);
-        let ptr = Box::into_raw(boxed);
-        let ptr = ptr as *mut c_void;
-        // Safety: safe as it was constructed from boxed value
-        unsafe { Box::from_raw(ptr) }
+    impl PropertyTraits for AoVolume {
+        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"time-pos\0") };
+        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
+        type MpvRepr = f64;
+        fn from_repr(val: &Self::MpvRepr) -> Self {
+            Self(*val)
+        }
+        fn to_repr(&self) -> Self::MpvRepr {
+            self.0
+        }
     }
 
     #[derive(Debug, Clone)]

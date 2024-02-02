@@ -76,15 +76,16 @@ fn main() {
     mpv.set_option_string("terminal", "yes");
     mpv.set_option_string("msg-level", "all=v");
     mpv.initialize().unwrap();
-    mpv.observe_property::<mpv::property::Duration>().unwrap();
-    mpv.observe_property::<mpv::property::TimePos>().unwrap();
     let mpv = std::sync::Arc::new(mpv);
 
     let app = App::new().unwrap();
     let app_weak = app.as_weak();
 
-    let mpv_ = mpv.clone();
     let app_weak_ = app_weak.clone();
+    let mpv_ = mpv.clone();
+    mpv_.observe_property::<mpv::property::Duration>().unwrap();
+    mpv_.observe_property::<mpv::property::TimePos>().unwrap();
+    mpv_.observe_property::<mpv::property::AoVolume>().unwrap();
     let _binding = std::thread::spawn(move || {
         loop {
             if let Some(event) = mpv_.wait_event(1.0) {
@@ -99,6 +100,11 @@ fn main() {
                     MpvEvent::PropertyChange(Property::TimePos(t)) => {
                         let _ = app_weak_.upgrade_in_event_loop(move |app| {
                             app.set_video_position(t.0 as f32);
+                        });
+                    }
+                    MpvEvent::PropertyChange(Property::AoVolume(t)) => {
+                        let _ = app_weak_.upgrade_in_event_loop(move |app| {
+                            app.set_video_volume(t.0 as f32);
                         });
                     }
                     _ => {}
@@ -120,6 +126,20 @@ fn main() {
     let mpv_ = mpv.clone();
     app.on_seek(move |val| {
         mpv_.set_property(&mpv::property::TimePos(val as f64)).unwrap();
+    });
+    let mpv_ = mpv.clone();
+    app.on_open_file(move || {
+        eprintln!("open file");
+        if let Some(path) = rfd::FileDialog::new().pick_file() {
+            mpv_
+                .command(&[
+                    "loadfile",
+                    path.to_str().unwrap(),
+                ])
+                .unwrap();
+        } else {
+            eprintln!("hm");
+        }
     });
 
     let mut renderer = None;

@@ -7,11 +7,14 @@ export component App inherits Window {
     in property <image> texture <=> image.source;
     in property <float> video-duration;
     in-out property <float> video-position <=> seeker.value;
+    in-out property <float> video-volume <=> volume.value;
     out property <int> requested-texture-width: image.width/1phx;
     out property <int> requested-texture-height: image.height/1phx;
 
     callback toggle-pause();
+    callback open-file();
     callback seek(float);
+    callback set-volume(float);
 
     preferred-width: 500px;
     preferred-height: 600px;
@@ -52,9 +55,25 @@ export component App inherits Window {
                     }
                 }
                 Row {
+                    Text {
+                        text: "Volume:";
+                        vertical-alignment: center;
+                    }
+
+                    volume := Slider {
+                        minimum: 0.0;
+                        maximum: 100.0;
+                        changed => { seek(video-position) }
+                    }
+                }
+                Row {
                     Button {
                         text: "Pause/Play";
                         clicked => { toggle-pause() }
+                    }
+                    Button {
+                        text: "Open file";
+                        clicked => { open-file() }
                     }
                 }
             }
