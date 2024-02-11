@@ -201,7 +201,7 @@ pub mod property {
         TimePos(TimePos),
         Pause(Pause),
         AoVolume(AoVolume),
-        AoMute(AoVolume),
+        AoMute(AoMute),
         Filename(Filename),
     }
 
@@ -364,10 +364,12 @@ pub mod event {
 
     #[derive(Debug, Clone)]
     pub enum MpvEvent {
-        PropertyChange(Property),
         StartFile{ playlist_entry_id: i64 },
         FileLoaded,
+        PlaybackRestart,
+        VideoReconfig,
         AudioReconfig,
+        PropertyChange(Property),
         Unsupported,
         /// Could not parse event. More events might be available
         Error,
@@ -390,8 +392,12 @@ pub mod event {
                 Some(MpvEvent::StartFile { playlist_entry_id: (*prop).playlist_entry_id })
             } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_FILE_LOADED {
                 Some(MpvEvent::FileLoaded)
+            } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_PLAYBACK_RESTART {
+                Some(MpvEvent::PlaybackRestart)
             } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_AUDIO_RECONFIG {
                 Some(MpvEvent::AudioReconfig)
+            } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_VIDEO_RECONFIG {
+                Some(MpvEvent::VideoReconfig)
             } else {
                 Some(MpvEvent::Unsupported)
             }

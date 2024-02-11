@@ -86,6 +86,7 @@ fn main() {
         mpv_.observe_property::<mpv::property::Duration>().unwrap();
         mpv_.observe_property::<mpv::property::TimePos>().unwrap();
         mpv_.observe_property::<mpv::property::AoVolume>().unwrap();
+        mpv_.observe_property::<mpv::property::AoMute>().unwrap();
         mpv_.observe_property::<mpv::property::Filename>().unwrap();
         loop {
             if let Some(event) = mpv_.wait_event(1.0) {
@@ -107,17 +108,27 @@ fn main() {
                             app.set_video_volume(t.0 as f32);
                         });
                     }
+                    MpvEvent::PropertyChange(Property::AoMute(_)) => {
+                        // update audio value just in case (see below)
+                        let mb_volume = mpv_.get_property::<mpv::property::AoVolume>();
+                        let value = mb_volume.map(|t| t.0).unwrap_or(0.0);
+                        let _ = app_weak_.upgrade_in_event_loop(move |app| {
+                            app.set_video_volume(value as f32);
+                        });
+                    }
                     MpvEvent::PropertyChange(Property::Filename(t)) => {
                         let _ = app_weak_.upgrade_in_event_loop(move |app| {
                             app.set_video_title(t.0.into());
                         });
                     }
                     // Volume event is not emitted when changing from undefined
-                    // to some number, so we workaround
-                    MpvEvent::AudioReconfig => {
+                    // to some number, so we workaround. But this also doesn't
+                    // work in some cases, sooooooooooo
+                    MpvEvent::AudioReconfig | MpvEvent::VideoReconfig | MpvEvent::PlaybackRestart => {
                         let mb_volume = mpv_.get_property::<mpv::property::AoVolume>();
                         // if not available, set to zero
                         let value = mb_volume.map(|t| t.0).unwrap_or(0.0);
+                        eprintln!("audio reconfig: {}", value);
                         let _ = app_weak_.upgrade_in_event_loop(move |app| {
                             app.set_video_volume(value as f32);
                         });
@@ -137,6 +148,11 @@ fn main() {
     app.on_toggle_pause(move || {
         let mpv::property::Pause(state) = mpv_.get_property().unwrap();
         mpv_.set_property(&mpv::property::Pause(!state)).unwrap();
+    });
+    let mpv_ = mpv.clone();
+    app.on_toggle_mute(move || {
+        let mpv::property::AoMute(state) = mpv_.get_property().unwrap();
+        mpv_.set_property(&mpv::property::AoMute(!state)).unwrap();
     });
     let mpv_ = mpv.clone();
     app.on_seek(move |val| {
@@ -181,7 +197,7 @@ fn main() {
                 mpv.mpv_gl
                     .command(&[
                         "loadfile",
-                        "/home/morj/videos/S.T.A.L.K.E.R.： Чистое Небо - Видеообзор (PC Игры) HD [MF8NSoVBozs].mkv",
+                        "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
                     ])
                     .unwrap();
 
