@@ -83,10 +83,11 @@ fn main() {
 
     let app_weak_ = app_weak.clone();
     let mpv_ = mpv.clone();
-    mpv_.observe_property::<mpv::property::Duration>().unwrap();
-    mpv_.observe_property::<mpv::property::TimePos>().unwrap();
-    mpv_.observe_property::<mpv::property::AoVolume>().unwrap();
     let _binding = std::thread::spawn(move || {
+        mpv_.observe_property::<mpv::property::Duration>().unwrap();
+        mpv_.observe_property::<mpv::property::TimePos>().unwrap();
+        mpv_.observe_property::<mpv::property::AoVolume>().unwrap();
+        mpv_.observe_property::<mpv::property::Filename>().unwrap();
         loop {
             if let Some(event) = mpv_.wait_event(1.0) {
                 use mpv::event::MpvEvent;
@@ -105,6 +106,16 @@ fn main() {
                     MpvEvent::PropertyChange(Property::AoVolume(t)) => {
                         let _ = app_weak_.upgrade_in_event_loop(move |app| {
                             app.set_video_volume(t.0 as f32);
+                        });
+                    }
+                    // Volume event is not emitted when changing from undefined
+                    // to some number, so we workaround
+                    MpvEvent::AudioReconfig => {
+                        let mb_volume = mpv_.get_property::<mpv::property::AoVolume>();
+                        // if not available, set to zero
+                        let value = mb_volume.map(|t| t.0).unwrap_or(0.0);
+                        let _ = app_weak_.upgrade_in_event_loop(move |app| {
+                            app.set_video_volume(value as f32);
                         });
                     }
                     _ => {}
@@ -169,11 +180,6 @@ fn main() {
                         "/home/morj/videos/S.T.A.L.K.E.R.： Чистое Небо - Видеообзор (PC Игры) HD [MF8NSoVBozs].mkv",
                     ])
                     .unwrap();
-
-                // Giant hack!
-                std::thread::sleep_ms(500);
-                let mpv::property::AoVolume(initial_volume) = mpv.mpv_gl.get_property().unwrap();
-                app_weak.upgrade().unwrap().set_video_volume(initial_volume as f32);
 
                 renderer = Some(mpv);
             }

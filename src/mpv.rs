@@ -202,6 +202,7 @@ pub mod property {
         Pause(Pause),
         AoVolume(AoVolume),
         AoMute(AoVolume),
+        Filename(Filename),
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -217,12 +218,16 @@ pub mod property {
     pub struct AoVolume(pub f64);
     #[derive(Debug, Clone, Copy)]
     pub struct AoMute(pub bool);
+    #[derive(Debug, Clone)]
+    pub struct Filename(pub String);
 
     pub trait PropertyTraits: Sized {
         const NAME: &'static CStr;
         const FORMAT: sys::mpv_format;
-        type MpvRepr: Default;
-        fn from_repr(val: &Self::MpvRepr) -> Self;
+        type MpvRepr: Default + Copy;
+        fn from_repr(val: Self::MpvRepr) -> Self;
+    }
+    pub trait WPropertyTraits: PropertyTraits {
         fn to_repr(&self) -> Self::MpvRepr;
     }
 
@@ -234,7 +239,7 @@ pub mod property {
                 if (*p).format == P::FORMAT {
                     let data = (*p).data as *const P::MpvRepr;
                     debug_assert!(!data.is_null());
-                    Ok(P::from_repr(&*data))
+                    Ok(P::from_repr(*data))
                 } else {
                     Err(ConvertError::TypeError)
                 }
@@ -248,10 +253,12 @@ pub mod property {
             } else if name == Pause::NAME {
                 read(prop).map(Property::Pause)
             } else if name == AoVolume::NAME {
-                eprintln!("format: {}", (*prop).format);
                 read(prop).map(Property::AoVolume)
             } else if name == AoMute::NAME {
                 read(prop).map(Property::AoMute)
+            } else if name == Filename::NAME {
+                eprintln!("filename format: {}", (*prop).format);
+                read(prop).map(Property::Filename)
             } else {
                 Err(ConvertError::Invalid)
             }
@@ -262,9 +269,11 @@ pub mod property {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"duration\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
         type MpvRepr = f64;
-        fn from_repr(val: &Self::MpvRepr) -> Self {
-            Self(*val)
+        fn from_repr(val: Self::MpvRepr) -> Self {
+            Self(val)
         }
+    }
+    impl WPropertyTraits for Duration {
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
         }
@@ -273,9 +282,11 @@ pub mod property {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"time-pos\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
         type MpvRepr = f64;
-        fn from_repr(val: &Self::MpvRepr) -> Self {
-            Self(*val)
+        fn from_repr(val: Self::MpvRepr) -> Self {
+            Self(val)
         }
+    }
+    impl WPropertyTraits for TimePos {
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
         }
@@ -284,9 +295,11 @@ pub mod property {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"pause\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
         type MpvRepr = std::ffi::c_int;
-        fn from_repr(val: &Self::MpvRepr) -> Self {
-            Self(*val != 0)
+        fn from_repr(val: Self::MpvRepr) -> Self {
+            Self(val != 0)
         }
+    }
+    impl WPropertyTraits for Pause {
         fn to_repr(&self) -> Self::MpvRepr {
             std::ffi::c_int::from(self.0)
         }
@@ -295,9 +308,11 @@ pub mod property {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"ao-volume\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
         type MpvRepr = f64;
-        fn from_repr(val: &Self::MpvRepr) -> Self {
-            Self(*val)
+        fn from_repr(val: Self::MpvRepr) -> Self {
+            Self(val)
         }
+    }
+    impl WPropertyTraits for AoVolume {
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
         }
@@ -306,11 +321,24 @@ pub mod property {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"ao-mute\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
         type MpvRepr = std::ffi::c_int;
-        fn from_repr(val: &Self::MpvRepr) -> Self {
-            Self(*val != 0)
+        fn from_repr(val: Self::MpvRepr) -> Self {
+            Self(val != 0)
         }
+    }
+    impl WPropertyTraits for AoMute {
         fn to_repr(&self) -> Self::MpvRepr {
             std::ffi::c_int::from(self.0)
+        }
+    }
+    impl PropertyTraits for Filename {
+        const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"filename\0") };
+        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
+        type MpvRepr = StrPtr;
+        fn from_repr(val: Self::MpvRepr) -> Self {
+            let cstr = unsafe { std::ffi::CStr::from_ptr(val.0) };
+            // Or should I do bytestring and convert to bytes instead of lossy?
+            // Or should I assume unicode and unwrap?
+            Self(cstr.to_string_lossy().into_owned())
         }
     }
 
@@ -318,6 +346,15 @@ pub mod property {
     pub enum ConvertError {
         TypeError,
         Invalid,
+    }
+
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct StrPtr(*const i8);
+    impl Default for StrPtr {
+        fn default() -> Self {
+            Self(std::ptr::null())
+        }
     }
 }
 
@@ -329,6 +366,9 @@ pub mod event {
     #[derive(Debug, Clone)]
     pub enum MpvEvent {
         PropertyChange(Property),
+        StartFile{ playlist_entry_id: i64 },
+        FileLoaded,
+        AudioReconfig,
         Unsupported,
         /// Could not parse event. More events might be available
         Error,
@@ -345,6 +385,14 @@ pub mod event {
                     Ok(p) => Some(MpvEvent::PropertyChange(p)),
                     Err(_) => Some(MpvEvent::Error),
                 }
+            } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_START_FILE {
+                let prop = (*e).data as *const sys::mpv_event_start_file;
+                debug_assert!(!prop.is_null());
+                Some(MpvEvent::StartFile { playlist_entry_id: (*prop).playlist_entry_id })
+            } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_FILE_LOADED {
+                Some(MpvEvent::FileLoaded)
+            } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_AUDIO_RECONFIG {
+                Some(MpvEvent::AudioReconfig)
             } else {
                 Some(MpvEvent::Unsupported)
             }
@@ -383,10 +431,10 @@ impl Mpv {
                 ptr as *mut c_void,
             )
         };
-        Error::raises(P::from_repr(&buffer), e)
+        Error::raises(P::from_repr(buffer), e)
     }
 
-    pub fn set_property<P: property::PropertyTraits>(&self, p: &P) -> Result<()> {
+    pub fn set_property<P: property::WPropertyTraits>(&self, p: &P) -> Result<()> {
         let data = p.to_repr();
         let data_ptr = &data as *const P::MpvRepr;
         let data_ptr = data_ptr as *mut c_void;
