@@ -1,3 +1,24 @@
+/*
+Copyright (c) 2024 maurges <contact@morj.men>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 mod gl;
 mod mpv;
 
@@ -24,16 +45,6 @@ impl DemoRenderer {
             gl,
             mpv_gl,
             texture,
-        }
-    }
-
-    fn texture(&self) -> slint::Image {
-        unsafe {
-            slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
-                self.texture.texture.0,
-                (self.texture.width, self.texture.height).into(),
-            )
-            .build()
         }
     }
 
@@ -64,7 +75,14 @@ impl DemoRenderer {
         };
 
         if recreated {
-            Some(self.texture())
+            let texture = unsafe {
+                slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
+                    self.texture.texture.0,
+                    (self.texture.width, self.texture.height).into(),
+                )
+                .build()
+            };
+            Some(texture)
         } else {
             None
         }
@@ -73,7 +91,7 @@ impl DemoRenderer {
 
 fn main() {
     let mpv = mpv::Mpv::new().unwrap();
-    mpv.set_option_string("terminal", "no");
+    mpv.set_option_string("terminal", "no").unwrap();
     mpv.initialize().unwrap();
     let mpv = std::sync::Arc::new(mpv);
 
@@ -122,9 +140,11 @@ fn main() {
                         });
                     }
                     // Volume event is not emitted when changing from undefined
-                    // to some number, so we workaround. But this also doesn't
+                    // to some number, so we workaround. But this still doesn't
                     // work in some cases, sooooooooooo
-                    MpvEvent::AudioReconfig | MpvEvent::VideoReconfig | MpvEvent::PlaybackRestart => {
+                    MpvEvent::AudioReconfig
+                    | MpvEvent::VideoReconfig
+                    | MpvEvent::PlaybackRestart => {
                         let mb_volume = mpv_.get_property::<mpv::property::AoVolume>();
                         // if not available, set to zero
                         let value = mb_volume.map(|t| t.0).unwrap_or(0.0);
@@ -137,9 +157,8 @@ fn main() {
                 }
             }
             // check if event loop is still alive
-            match app_weak_.upgrade_in_event_loop(|_| {}) {
-                Err(_) => break,
-                _ => (),
+            if app_weak_.upgrade_in_event_loop(|_| {}).is_err() {
+                break;
             }
         }
     });
@@ -156,21 +175,18 @@ fn main() {
     });
     let mpv_ = mpv.clone();
     app.on_seek(move |val| {
-        mpv_.set_property(&mpv::property::TimePos(val as f64)).unwrap();
+        mpv_.set_property(&mpv::property::TimePos(val as f64))
+            .unwrap();
     });
     let mpv_ = mpv.clone();
     app.on_set_volume(move |val| {
-        mpv_.set_property(&mpv::property::AoVolume(val as f64)).unwrap();
+        mpv_.set_property(&mpv::property::AoVolume(val as f64))
+            .unwrap();
     });
     let mpv_ = mpv.clone();
     app.on_open_file(move || {
         if let Some(path) = rfd::FileDialog::new().pick_file() {
-            mpv_
-                .command(&[
-                    "loadfile",
-                    path.to_str().unwrap(),
-                ])
-                .unwrap();
+            mpv_.command(&["loadfile", path.to_str().unwrap()]).unwrap();
         }
     });
 

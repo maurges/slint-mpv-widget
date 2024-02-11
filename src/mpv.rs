@@ -1,3 +1,27 @@
+/*
+Copyright (c) 2024 maurges <contact@morj.men>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+//! Most functions mimic mpv c api, so see their documentation
+
 use std::ffi::c_void;
 
 #[allow(dead_code)]
@@ -12,7 +36,6 @@ pub struct Mpv {
 
 impl Drop for Mpv {
     fn drop(&mut self) {
-        // Safety: TODO
         unsafe { sys::mpv_terminate_destroy(self.ptr) }
     }
 }
@@ -24,9 +47,9 @@ unsafe impl Send for Mpv {}
 unsafe impl Sync for Mpv {}
 
 impl Mpv {
+    /// Two-step creation: new, set options, [`initialize`]
     #[must_use]
     pub fn new() -> Option<Self> {
-        // Safety: TODO
         let ptr = unsafe { sys::mpv_create() };
         if ptr.is_null() {
             None
@@ -35,17 +58,18 @@ impl Mpv {
         }
     }
 
-    pub fn set_option_string(&self, name: &str, value: &str) {
-        // Safety: TODO
-        let _ = unsafe {
+    pub fn set_option_string(&self, name: &str, value: &str) -> Result<()> {
+        // Safety: it's just cstrings
+        let e = unsafe {
             let name = std::ffi::CString::new(name).unwrap();
             let value = std::ffi::CString::new(value).unwrap();
             sys::mpv_set_option_string(self.ptr, name.as_ptr(), value.as_ptr())
         };
+        Error::raise(e)
     }
 
+    /// Must call this before doing anything interesting
     pub fn initialize(&self) -> Result<()> {
-        // Safety: TODO
         let e = unsafe { sys::mpv_initialize(self.ptr) };
         Error::raise(e)
     }
@@ -62,19 +86,6 @@ impl Mpv {
         let e = unsafe { sys::mpv_command(self.ptr, args.as_mut_ptr()) };
         Error::raise(e)
     }
-
-    #[allow(dead_code)]
-    pub fn set_wakeup_callback<F>(&self, cb: F)
-    where
-        F: FnMut(),
-    {
-        let closure = Box::new(cb);
-        unsafe {
-            let closure_ptr = Box::into_raw(closure);
-            let closure_ptr = closure_ptr as *mut c_void;
-            sys::mpv_set_wakeup_callback(self.ptr, Some(call_closure_0::<F>), closure_ptr)
-        }
-    }
 }
 
 /// GL render context
@@ -85,7 +96,6 @@ pub struct MpvRenderContext {
 
 impl Drop for MpvRenderContext {
     fn drop(&mut self) {
-        // Safety: TODO
         unsafe { sys::mpv_render_context_free(self.ptr) };
     }
 }
@@ -113,8 +123,7 @@ impl MpvRenderContext {
             let arg = std::ffi::CStr::from_ptr(arg);
             let closure_ptr = closure_ptr as *const &CreateContextFn;
             let closure: &&CreateContextFn = &*closure_ptr;
-            let r = closure(arg).cast_mut();
-            r
+            closure(arg).cast_mut()
         }
         let closure_ptr = get_proc_addr as *const &CreateContextFn;
         let mut init_params = sys::mpv_opengl_init_params {
@@ -190,11 +199,15 @@ impl MpvRenderContext {
     }
 }
 
+/// Well-typed mpv properties. Conversion from rust to c and back.
+///
+/// See https://mpv.io/manual/master/#properties
 pub mod property {
     use std::ffi::CStr;
 
     use super::sys;
 
+    /// Only actually used when listening for events.
     #[derive(Debug, Clone)]
     pub enum Property {
         Duration(Duration),
@@ -214,7 +227,7 @@ pub mod property {
     pub struct Pause(pub bool);
     #[derive(Debug, Clone, Copy)]
     /// Until a video with audio track is loaded, volume property is not
-    /// accessible
+    /// accessible. And even for some time after loading too.
     pub struct AoVolume(pub f64);
     #[derive(Debug, Clone, Copy)]
     pub struct AoMute(pub bool);
@@ -235,7 +248,9 @@ pub mod property {
         pub unsafe fn from_raw(prop: *const sys::mpv_event_property) -> Result<Self, ConvertError> {
             debug_assert!(!prop.is_null());
 
-            unsafe fn read<P: ReadProperty>(p: *const sys::mpv_event_property) -> Result<P, ConvertError> {
+            unsafe fn read<P: ReadProperty>(
+                p: *const sys::mpv_event_property,
+            ) -> Result<P, ConvertError> {
                 if (*p).format == P::FORMAT {
                     let data = (*p).data as *const P::MpvRepr;
                     debug_assert!(!data.is_null());
@@ -357,14 +372,16 @@ pub mod property {
     }
 }
 
+/// Well-typed mpv events
 pub mod event {
-    //! https://mpv.io/manual/master/#properties
 
     use super::{property::Property, sys};
 
     #[derive(Debug, Clone)]
     pub enum MpvEvent {
-        StartFile{ playlist_entry_id: i64 },
+        StartFile {
+            playlist_entry_id: i64,
+        },
         FileLoaded,
         PlaybackRestart,
         VideoReconfig,
@@ -389,7 +406,9 @@ pub mod event {
             } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_START_FILE {
                 let prop = (*e).data as *const sys::mpv_event_start_file;
                 debug_assert!(!prop.is_null());
-                Some(MpvEvent::StartFile { playlist_entry_id: (*prop).playlist_entry_id })
+                Some(MpvEvent::StartFile {
+                    playlist_entry_id: (*prop).playlist_entry_id,
+                })
             } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_FILE_LOADED {
                 Some(MpvEvent::FileLoaded)
             } else if (*e).event_id == sys::mpv_event_id_MPV_EVENT_PLAYBACK_RESTART {
@@ -415,12 +434,7 @@ impl Mpv {
     /// Notify mpv that we want to observe property events
     pub fn observe_property<P: property::ReadProperty>(&self) -> Result<()> {
         unsafe {
-            let e = sys::mpv_observe_property(
-                self.ptr,
-                0,
-                P::NAME.as_ptr(),
-                P::FORMAT,
-            );
+            let e = sys::mpv_observe_property(self.ptr, 0, P::NAME.as_ptr(), P::FORMAT);
             Error::raise(e)
         }
     }
@@ -429,12 +443,7 @@ impl Mpv {
         let mut buffer = P::MpvRepr::default();
         let e = unsafe {
             let ptr = &mut buffer as *mut P::MpvRepr;
-            sys::mpv_get_property(
-                self.ptr,
-                P::NAME.as_ptr(),
-                P::FORMAT,
-                ptr as *mut c_void,
-            )
+            sys::mpv_get_property(self.ptr, P::NAME.as_ptr(), P::FORMAT, ptr as *mut c_void)
         };
         Error::raises(P::from_repr(buffer), e)
     }
@@ -462,7 +471,7 @@ where
 
 pub struct Error(i32);
 
-// panic uses Debug for showing error, not display? Fucking why?
+// panic uses Debug for showing error, not Display? Fucking why?
 impl std::fmt::Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Safety: perfectly fine function

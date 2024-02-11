@@ -15,7 +15,8 @@ macro_rules! define_scoped_binding {
         impl $binding_ty_name {
             unsafe fn new(gl: &Rc<glow::Context>, new_binding: Option<$obj_name>) -> Self {
                 let saved_value =
-                    std::num::NonZeroU32::new(gl.get_parameter_i32($param_name) as u32).map($obj_name);
+                    std::num::NonZeroU32::new(gl.get_parameter_i32($param_name) as u32)
+                        .map($obj_name);
 
                 gl.$binding_fn($target_name, new_binding);
                 Self {
@@ -42,7 +43,8 @@ macro_rules! define_scoped_binding {
         impl $binding_ty_name {
             unsafe fn new(gl: &Rc<glow::Context>, new_binding: Option<$obj_name>) -> Self {
                 let saved_value =
-                    std::num::NonZeroU32::new(gl.get_parameter_i32($param_name) as u32).map($obj_name);
+                    std::num::NonZeroU32::new(gl.get_parameter_i32($param_name) as u32)
+                        .map($obj_name);
 
                 gl.$binding_fn(new_binding);
                 Self {
