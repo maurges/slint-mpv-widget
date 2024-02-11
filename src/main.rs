@@ -73,8 +73,7 @@ impl DemoRenderer {
 
 fn main() {
     let mpv = mpv::Mpv::new().unwrap();
-    mpv.set_option_string("terminal", "yes");
-    mpv.set_option_string("msg-level", "all=v");
+    mpv.set_option_string("terminal", "no");
     mpv.initialize().unwrap();
     let mpv = std::sync::Arc::new(mpv);
 
@@ -106,6 +105,11 @@ fn main() {
                     MpvEvent::PropertyChange(Property::AoVolume(t)) => {
                         let _ = app_weak_.upgrade_in_event_loop(move |app| {
                             app.set_video_volume(t.0 as f32);
+                        });
+                    }
+                    MpvEvent::PropertyChange(Property::Filename(t)) => {
+                        let _ = app_weak_.upgrade_in_event_loop(move |app| {
+                            app.set_video_title(t.0.into());
                         });
                     }
                     // Volume event is not emitted when changing from undefined

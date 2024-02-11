@@ -221,13 +221,13 @@ pub mod property {
     #[derive(Debug, Clone)]
     pub struct Filename(pub String);
 
-    pub trait PropertyTraits: Sized {
+    pub trait ReadProperty: Sized {
         const NAME: &'static CStr;
         const FORMAT: sys::mpv_format;
         type MpvRepr: Default + Copy;
         fn from_repr(val: Self::MpvRepr) -> Self;
     }
-    pub trait WPropertyTraits: PropertyTraits {
+    pub trait WriteProperty: ReadProperty {
         fn to_repr(&self) -> Self::MpvRepr;
     }
 
@@ -235,7 +235,7 @@ pub mod property {
         pub unsafe fn from_raw(prop: *const sys::mpv_event_property) -> Result<Self, ConvertError> {
             debug_assert!(!prop.is_null());
 
-            unsafe fn read<P: PropertyTraits>(p: *const sys::mpv_event_property) -> Result<P, ConvertError> {
+            unsafe fn read<P: ReadProperty>(p: *const sys::mpv_event_property) -> Result<P, ConvertError> {
                 if (*p).format == P::FORMAT {
                     let data = (*p).data as *const P::MpvRepr;
                     debug_assert!(!data.is_null());
@@ -257,7 +257,6 @@ pub mod property {
             } else if name == AoMute::NAME {
                 read(prop).map(Property::AoMute)
             } else if name == Filename::NAME {
-                eprintln!("filename format: {}", (*prop).format);
                 read(prop).map(Property::Filename)
             } else {
                 Err(ConvertError::Invalid)
@@ -265,7 +264,7 @@ pub mod property {
         }
     }
 
-    impl PropertyTraits for Duration {
+    impl ReadProperty for Duration {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"duration\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
         type MpvRepr = f64;
@@ -273,12 +272,12 @@ pub mod property {
             Self(val)
         }
     }
-    impl WPropertyTraits for Duration {
+    impl WriteProperty for Duration {
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
         }
     }
-    impl PropertyTraits for TimePos {
+    impl ReadProperty for TimePos {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"time-pos\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
         type MpvRepr = f64;
@@ -286,12 +285,12 @@ pub mod property {
             Self(val)
         }
     }
-    impl WPropertyTraits for TimePos {
+    impl WriteProperty for TimePos {
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
         }
     }
-    impl PropertyTraits for Pause {
+    impl ReadProperty for Pause {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"pause\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
         type MpvRepr = std::ffi::c_int;
@@ -299,12 +298,12 @@ pub mod property {
             Self(val != 0)
         }
     }
-    impl WPropertyTraits for Pause {
+    impl WriteProperty for Pause {
         fn to_repr(&self) -> Self::MpvRepr {
             std::ffi::c_int::from(self.0)
         }
     }
-    impl PropertyTraits for AoVolume {
+    impl ReadProperty for AoVolume {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"ao-volume\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_DOUBLE;
         type MpvRepr = f64;
@@ -312,12 +311,12 @@ pub mod property {
             Self(val)
         }
     }
-    impl WPropertyTraits for AoVolume {
+    impl WriteProperty for AoVolume {
         fn to_repr(&self) -> Self::MpvRepr {
             self.0
         }
     }
-    impl PropertyTraits for AoMute {
+    impl ReadProperty for AoMute {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"ao-mute\0") };
         const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
         type MpvRepr = std::ffi::c_int;
@@ -325,14 +324,14 @@ pub mod property {
             Self(val != 0)
         }
     }
-    impl WPropertyTraits for AoMute {
+    impl WriteProperty for AoMute {
         fn to_repr(&self) -> Self::MpvRepr {
             std::ffi::c_int::from(self.0)
         }
     }
-    impl PropertyTraits for Filename {
+    impl ReadProperty for Filename {
         const NAME: &'static CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"filename\0") };
-        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_FLAG;
+        const FORMAT: sys::mpv_format = sys::mpv_format_MPV_FORMAT_STRING;
         type MpvRepr = StrPtr;
         fn from_repr(val: Self::MpvRepr) -> Self {
             let cstr = unsafe { std::ffi::CStr::from_ptr(val.0) };
@@ -408,7 +407,7 @@ impl Mpv {
     }
 
     /// Notify mpv that we want to observe property events
-    pub fn observe_property<P: property::PropertyTraits>(&self) -> Result<()> {
+    pub fn observe_property<P: property::ReadProperty>(&self) -> Result<()> {
         unsafe {
             let e = sys::mpv_observe_property(
                 self.ptr,
@@ -420,7 +419,7 @@ impl Mpv {
         }
     }
 
-    pub fn get_property<P: property::PropertyTraits>(&self) -> Result<P> {
+    pub fn get_property<P: property::ReadProperty>(&self) -> Result<P> {
         let mut buffer = P::MpvRepr::default();
         let e = unsafe {
             let ptr = &mut buffer as *mut P::MpvRepr;
@@ -434,7 +433,7 @@ impl Mpv {
         Error::raises(P::from_repr(buffer), e)
     }
 
-    pub fn set_property<P: property::WPropertyTraits>(&self, p: &P) -> Result<()> {
+    pub fn set_property<P: property::WriteProperty>(&self, p: &P) -> Result<()> {
         let data = p.to_repr();
         let data_ptr = &data as *const P::MpvRepr;
         let data_ptr = data_ptr as *mut c_void;

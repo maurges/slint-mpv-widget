@@ -6,6 +6,7 @@ import { Button, Slider, GroupBox, HorizontalBox, VerticalBox, GridBox } from "s
 export component App inherits Window {
     in property <image> texture <=> image.source;
     in property <float> video-duration;
+    in property <string> video-title;
     in-out property <float> video-position <=> seeker.value;
     in-out property <float> video-volume <=> volume.value;
     out property <int> requested-texture-width: image.width/1phx;
@@ -22,7 +23,7 @@ export component App inherits Window {
 
     VerticalBox {
         Text {
-            text: "This text is rendered using Slint. The rotating cube below is rendered into an OpenGL texture.";
+            text: "Now playing: " + root.video-title;
             wrap: word-wrap;
         }
 
